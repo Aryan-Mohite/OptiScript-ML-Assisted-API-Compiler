@@ -1,0 +1,10 @@
+{
+  "name": "optiscript",
+  "version": "0.1.0",
+  "description": "ML-assisted DSL compiler: custom syntax -> Express.js routes + MySQL queries",
+  "main": "lexer/lexer.js",
+  "scripts": {
+    "test:lexer": "node lexer/test-lexer.js"
+  },
+  "license": "MIT"
+}
