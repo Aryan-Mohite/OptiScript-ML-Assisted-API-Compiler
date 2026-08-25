@@ -1,0 +1,36 @@
+# --- Dependencies ---
+node_modules/
+frontend/node_modules/
+
+# --- Environment / secrets (ML API keys, DB creds — Week 4+) ---
+.env
+.env.local
+.env.*.local
+
+# --- Build output (Week 8 React frontend) ---
+frontend/dist/
+frontend/build/
+
+# --- Logs ---
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# --- OS / editor junk ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# --- Test / coverage output ---
+coverage/
+
+# --- SQLite dev DB (if used instead of MySQL, per Week 0 note) ---
+*.sqlite
+*.sqlite3
+*.db
+
+# --- Zipped deliverables (don't want to version-control your own exports) ---
+*.zip
