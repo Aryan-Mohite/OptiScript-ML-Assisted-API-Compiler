@@ -41,6 +41,10 @@ POST /authors -> INSERT INTO authors_db WHERE name = "Frank Herbert"`,
   `DELETE /books -> FIND all IN library_db`,
 ];
 
+// NOTE (Week 3): parse() now returns { ast, symbolTable } since the
+// parser builds the symbol table as a side effect of parsing. This file
+// still only exercises the AST shape (Week 2 concern); see
+// semantic/test-symbolTable.js for the Week 3 symbol-table-focused tests.
 function run(src) {
   const tokens = tokenize(src);
   return parse(tokens);
@@ -50,7 +54,7 @@ samples.forEach((src, idx) => {
   console.log(`\n=== Sample ${idx + 1} ===`);
   console.log(`Input: ${JSON.stringify(src)}`);
   try {
-    const ast = run(src);
+    const { ast } = run(src);
     console.log(JSON.stringify(ast, null, 2));
   } catch (err) {
     console.log(`  -> Caught error as expected: ${err.message}`);

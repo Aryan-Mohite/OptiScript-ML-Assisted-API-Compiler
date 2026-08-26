@@ -8,12 +8,18 @@
  * rules.md. Builds a plain-object AST (per phases.md: "plain JS objects
  * {type, children, value}").
  *
+ * Week 3 update (Module 3 — SDT & Symbol Table): the parser now builds a
+ * SymbolTable as it goes, registering every route, table, and WHERE-clause
+ * field the moment it recognizes them. See semantic/symbolTable.js.
+ *
  * Usage:
  *   const { tokenize } = require('../lexer/lexer');
  *   const { parse } = require('./parser');
- *   const ast = parse(tokenize('GET /books -> FIND all IN library_db'));
+ *   const { ast, symbolTable } = parse(tokenize('GET /books -> FIND all IN library_db'));
  * -----------------------------------------------------------------------
  */
+
+const { SymbolTable } = require('../semantic/symbolTable');
 
 class ParserError extends Error {
   constructor(message, line) {
@@ -24,9 +30,14 @@ class ParserError extends Error {
 }
 
 class Parser {
-  constructor(tokens) {
+  // `symbolTable` is optional — if the caller doesn't pass one, the
+  // parser creates its own so it can still be used standalone (e.g. in
+  // lexer/parser-only unit tests) without forcing every caller to wire
+  // semantic analysis in themselves.
+  constructor(tokens, symbolTable) {
     this.tokens = tokens;
     this.pos = 0;
+    this.symbolTable = symbolTable || new SymbolTable();
   }
 
   // ---- low-level token helpers ----
@@ -93,6 +104,11 @@ class Parser {
     const line = this.current().line;
     const method = this.parseMethod();
     const path = this.parsePath();
+    // Register the endpoint in the symbol table as soon as we know the
+    // full method + path — this is also where a duplicate-route
+    // SymbolTableError would surface, before we even look at the action.
+    const pathString = '/' + path.segments.join('/');
+    this.symbolTable.declareRoute(method, pathString, line);
     this.expect('ARROW', undefined, "Expected '->' after route path");
     const action = this.parseAction();
     return { type: 'RouteStatement', method, path, action, line };
@@ -153,7 +169,8 @@ class Parser {
     this.expect('KEYWORD', 'all', "Expected 'all' after FIND");
     this.expect('KEYWORD', 'IN', "Expected 'IN' after 'all'");
     const table = this.expect('IDENTIFIER', undefined, 'Expected table name after IN').value;
-    const where = this.check('KEYWORD', 'WHERE') ? this.parseWhereClause() : null;
+    this.symbolTable.declareTable(table, line, 'FIND');
+    const where = this.check('KEYWORD', 'WHERE') ? this.parseWhereClause(table) : null;
     return { type: 'FindAction', table, where, line };
   }
 
@@ -163,12 +180,16 @@ class Parser {
     this.expect('KEYWORD', 'INSERT');
     this.expect('KEYWORD', 'INTO', "Expected 'INTO' after INSERT");
     const table = this.expect('IDENTIFIER', undefined, 'Expected table name after INTO').value;
-    const where = this.check('KEYWORD', 'WHERE') ? this.parseWhereClause() : null;
+    this.symbolTable.declareTable(table, line, 'INSERT');
+    const where = this.check('KEYWORD', 'WHERE') ? this.parseWhereClause(table) : null;
     return { type: 'InsertAction', table, where, line };
   }
 
   // <whereClause> ::= "WHERE" IDENTIFIER EQUALS ( STRING | NUMBER )
-  parseWhereClause() {
+  // `tableName` is passed in by the caller (parseFindAction /
+  // parseInsertAction) so the field can be registered in the symbol
+  // table under the correct table's field scope.
+  parseWhereClause(tableName) {
     const line = this.current().line;
     this.expect('KEYWORD', 'WHERE');
     const field = this.expect('IDENTIFIER', undefined, 'Expected field name after WHERE').value;
@@ -187,13 +208,17 @@ class Parser {
         tok.line
       );
     }
+    this.symbolTable.declareField(tableName, field, valueType, line);
     return { type: 'WhereClause', field, operator: '=', value, valueType, line };
   }
 }
 
-function parse(tokens) {
-  const parser = new Parser(tokens);
-  return parser.parseProgram();
+// Returns { ast, symbolTable } — the symbol table is populated as a
+// side effect of parsing (Week 3), not a separate pass.
+function parse(tokens, symbolTable) {
+  const parser = new Parser(tokens, symbolTable);
+  const ast = parser.parseProgram();
+  return { ast, symbolTable: parser.symbolTable };
 }
 
 module.exports = { parse, Parser, ParserError };
