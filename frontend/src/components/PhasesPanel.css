@@ -1,0 +1,136 @@
+/* Tabbed phases panel — reuses the .console-panel shell from
+   ConsolePanel.css; colors come from the design.md tokens in index.css. */
+
+.phases__bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  background: var(--bg-base);
+  border-bottom: 1px solid var(--border);
+}
+
+.console-panel--collapsed .phases__bar {
+  border-bottom: none;
+}
+
+.phases__tabs {
+  display: flex;
+  overflow-x: auto;
+}
+
+.phases__tab {
+  padding: 8px 14px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.phases__tab--active {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent);
+}
+
+.phases__toggle {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 0 12px;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.phases__body {
+  height: 240px;
+  overflow: auto;
+  padding: 8px 12px;
+}
+
+.phases__empty {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.phases__heading {
+  margin: 6px 0 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.phases__summary,
+.phases__note {
+  margin-bottom: 8px;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+}
+
+.phases__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-code);
+  font-size: 12.5px;
+}
+
+.phases__table th,
+.phases__table td {
+  padding: 3px 10px 3px 0;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.phases__table th {
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-weight: 600;
+}
+
+/* Flagged rows: dead-code quadruples and ML/heuristic-corrected tokens.
+   Muted red, used sparingly per design.md. */
+.phases__row--flag td {
+  color: var(--error);
+}
+
+.phases__split {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.phases__split > div {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+/* Parse tree */
+.tree__node,
+.tree__leaf {
+  font-family: var(--font-code);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+.tree__node > .tree__node,
+.tree__node > .tree__leaf {
+  margin-left: 18px;
+}
+
+.tree__node > summary {
+  cursor: pointer;
+}
+
+.tree__type {
+  font-weight: 600;
+}
+
+.tree__key,
+.tree__attr {
+  color: var(--text-secondary);
+}

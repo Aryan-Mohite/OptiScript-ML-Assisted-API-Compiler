@@ -663,3 +663,60 @@ ML recovery, 1 showing dead-code elimination).
 - No loading/error state polish beyond the basic "Compiling…" button
   label and a "Backend unreachable" console line — acceptable for a
   class demo, but worth a glance during the Day 5 pass.
+
+---
+
+## 2026-10-10 — Week 8 addition: Compiler Phases Tab Panel
+
+**What was built:** the bottom console is now a tabbed **PhasesPanel**
+so every compiler phase's output is visible in the playground (great
+for the viva — each tab maps to a syllabus module). Frontend only; no
+backend or compiler changes, since `compile()` already returned every
+field needed.
+
+**Tabs:** `Console | Tokens | Parse Tree | Symbol Table | Quadruples | Optimization`
+| Tab | Module | Shows |
+|---|---|---|
+| Tokens | 1 | index / type / value / line table. Tokens fixed by error recovery are flagged in muted red (matched via `recoveryLog[].position`). |
+| Parse Tree | 2 | collapsible AST (native `<details>`), generic recursive renderer — works for any node shape. |
+| Symbol Table | 3 | routes table + tables/fields table (type, use count) + warnings. |
+| Quadruples | 4 | `# / Operator / Arg1 / Arg2 / Result` table (`_` = empty). |
+| Optimization | 5 | before vs after dead-code elimination side by side; removed rows highlighted in muted red; basic-block count in the summary line. |
+
+**Files:**
+- NEW `frontend/src/components/PhasesPanel.jsx` + `PhasesPanel.css`.
+- NEW `frontend/src/components/consoleLines.js` — `buildPhaseLines` and
+  `statusLabel` moved out of `ConsolePanel.jsx` (lint warned about
+  exporting non-components from a component file). Console tab reuses them.
+- `App.jsx` now renders `<PhasesPanel>` instead of `<ConsolePanel>`.
+  `ConsolePanel.jsx` is no longer used by the app (kept, not deleted).
+
+**Key decisions:**
+- Plain HTML tables + native `<details>` — no chart/graph libraries.
+- Removed quadruples arrive from the API as JSON copies, so the
+  Optimization tab matches them to the "before" list by content
+  (`op|arg1|arg2|result`) rather than by object identity.
+- Tabs show "pipeline stopped at an earlier phase" when a phase's data
+  is null (e.g. a parser error means no AST/quadruples).
+- Muted red `#F87171` still used sparingly (flagged rows only).
+
+**Verified:**
+- `npm run build` and `oxlint` both clean (0 warnings, 0 errors).
+- Ran the real backend + Vite dev server and drove the page in a real
+  headless browser (Playwright): compiled `GRT /books ...` + a POST
+  route, opened all 5 new tabs, content correct, no JS errors, and the
+  `GRT -> GET` corrected token was flagged in the Tokens tab.
+  Screenshot reviewed — layout matches design.md.
+
+**Gotcha:** `npm install` is needed in BOTH the repo root (backend:
+express) and `frontend/` — the backend crashes on `require('express')`
+otherwise.
+
+**TODO / not yet verified:**
+- Dead-code highlighting in the Optimization tab is untested in the UI:
+  none of the sample DSL scripts produce removed quadruples (the
+  optimizer only removes quads whose result is never used). Worth
+  finding/adding a script that triggers it before the demo.
+- Panel body is a fixed 240px tall; a program with many routes just
+  scrolls inside it. Fine for the demo, easy to make resizable later.
+- Remaining Week 8: Day 6 report/docs, Day 7 demo script.

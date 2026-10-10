@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import CodeEditor from './components/CodeEditor.jsx';
 import OutputPane from './components/OutputPane.jsx';
-import ConsolePanel from './components/ConsolePanel.jsx';
+import PhasesPanel from './components/PhasesPanel.jsx';
 import { compileSource } from './api.js';
 import './App.css';
 
@@ -51,7 +51,7 @@ export default function App() {
         </section>
       </main>
 
-      <ConsolePanel result={result} status={status} />
+      <PhasesPanel result={result} status={status} />
     </div>
   );
 }
