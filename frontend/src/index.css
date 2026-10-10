@@ -1,0 +1,39 @@
+/* index.css — global styles + design tokens, straight from design.md */
+
+:root {
+  --bg-base: #F9FAFB;
+  --bg-editor: #FFFFFF;
+  --text-primary: #1F2937;
+  --text-secondary: #6B7280;
+  --border: #E5E7EB;
+  --accent: #9CA3AF;
+  --error: #F87171;
+
+  --font-ui: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-code: 'Fira Code', 'JetBrains Mono', ui-monospace, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: 14px;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+textarea, pre, code {
+  font-family: var(--font-code);
+}

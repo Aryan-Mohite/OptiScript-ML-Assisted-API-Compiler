@@ -1,0 +1,55 @@
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 16px;
+  gap: 12px;
+}
+
+.app__topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.app__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* design.md calls for "a simple, unstyled Compile button" — kept
+   deliberately plain, not a bright call-to-action, to match the
+   overall low-key, focus-first aesthetic. */
+.app__compile-btn {
+  padding: 6px 16px;
+  background: var(--bg-editor);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.app__compile-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.app__compile-btn:disabled {
+  color: var(--text-secondary);
+  cursor: not-allowed;
+}
+
+.app__body {
+  flex: 1;
+  display: flex;
+  gap: 12px;
+  min-height: 0; /* let children scroll instead of overflowing the flex row */
+}
+
+.app__pane {
+  flex: 1;
+  min-width: 0;
+}

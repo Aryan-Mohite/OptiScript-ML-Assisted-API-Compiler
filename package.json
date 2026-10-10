@@ -2,11 +2,21 @@
   "name": "optiscript",
   "version": "0.1.0",
   "description": "ML-assisted DSL compiler: custom syntax -> Express.js routes + MySQL queries",
-  "main": "lexer/lexer.js",
+  "main": "compiler.js",
   "scripts": {
     "test:lexer": "node lexer/test-lexer.js",
     "test:parser": "node parser/test-parser.js",
-    "test:symbols": "node semantic/test-symbolTable.js"
+    "test:symbols": "node semantic/test-symbolTable.js",
+    "test:mlrecovery": "node parser/mlRecovery.test.js",
+    "test:icg": "node icg/test-icg.js",
+    "test:optimizer": "node optimizer/test-optimizer.js",
+    "test:codegen": "node codegen/test-codegen.js",
+    "test:compiler": "node test-compiler.js",
+    "start": "node server.js",
+    "dev:frontend": "cd frontend && npm run dev"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "express": "^5.2.1"
+  }
 }

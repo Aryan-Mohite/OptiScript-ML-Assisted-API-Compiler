@@ -1,0 +1,69 @@
+.console-panel {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-editor);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.console-panel__header {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--bg-base);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.console-panel--collapsed .console-panel__header {
+  border-bottom: none;
+}
+
+.console-panel__status {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.console-panel__body {
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 8px 12px;
+}
+
+.console-panel__line {
+  font-family: var(--font-code);
+  font-size: 12.5px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.console-panel__line--info {
+  color: var(--text-primary);
+}
+
+.console-panel__line--muted {
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+}
+
+.console-panel__line--success {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.console-panel__line--warning {
+  color: var(--text-secondary);
+}
+
+/* Per design.md: the muted red is used sparingly — only for hard
+   errors and ML/heuristic recovery lines. */
+.console-panel__line--error,
+.console-panel__line--ml-recovery {
+  color: var(--error);
+}

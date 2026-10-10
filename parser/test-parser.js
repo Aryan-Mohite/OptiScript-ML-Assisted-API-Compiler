@@ -39,26 +39,48 @@ POST /authors -> INSERT INTO authors_db WHERE name = "Frank Herbert"`,
 
   // 8. INTENTIONALLY BROKEN — bad method keyword
   `DELETE /books -> FIND all IN library_db`,
+
+  // 9. RECOVERABLE (Week 4) — one-letter typo in a keyword; the
+  //    heuristic fallback should fix 'GRT' -> 'GET' and parse succeeds.
+  `GRT /books -> FIND all IN library_db`,
+
+  // 10. RECOVERABLE (Week 4) — typo'd action keyword ('FYND' -> 'FIND');
+  //     exercises recovery on the expectOneOf() path in parseAction(),
+  //     not just the single-token expect() path sample 9 exercises.
+  `GET /books -> FYND all IN library_db`,
 ];
 
 // NOTE (Week 3): parse() now returns { ast, symbolTable } since the
 // parser builds the symbol table as a side effect of parsing. This file
 // still only exercises the AST shape (Week 2 concern); see
 // semantic/test-symbolTable.js for the Week 3 symbol-table-focused tests.
-function run(src) {
+// NOTE (Week 4): parse() is now async (error recovery may call an API),
+// and also returns `recoveryLog` — any ML/heuristic fixes applied while
+// parsing this sample. See parser/mlRecovery.test.js for recovery-focused
+// tests; this file's "broken" samples now mostly demonstrate recovery
+// kicking in rather than always throwing outright.
+async function run(src) {
   const tokens = tokenize(src);
   return parse(tokens);
 }
 
-samples.forEach((src, idx) => {
-  console.log(`\n=== Sample ${idx + 1} ===`);
-  console.log(`Input: ${JSON.stringify(src)}`);
-  try {
-    const { ast } = run(src);
-    console.log(JSON.stringify(ast, null, 2));
-  } catch (err) {
-    console.log(`  -> Caught error as expected: ${err.message}`);
+async function main() {
+  for (let idx = 0; idx < samples.length; idx++) {
+    const src = samples[idx];
+    console.log(`\n=== Sample ${idx + 1} ===`);
+    console.log(`Input: ${JSON.stringify(src)}`);
+    try {
+      const { ast, recoveryLog } = await run(src);
+      if (recoveryLog.length > 0) {
+        console.log(`  (ML recovery applied ${recoveryLog.length} fix(es): ` +
+          recoveryLog.map((r) => `${r.source}: -> '${r.value}'`).join(', ') + ')');
+      }
+      console.log(JSON.stringify(ast, null, 2));
+    } catch (err) {
+      console.log(`  -> Caught error as expected: ${err.message}`);
+    }
   }
-});
+  console.log('\nAll samples processed.');
+}
 
-console.log('\nAll samples processed.');
+main();

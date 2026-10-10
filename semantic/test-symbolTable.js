@@ -86,20 +86,28 @@ GET /order_items/1024 -> FIND all IN order_items_table WHERE id = 1024`,
   },
 ];
 
-function run(src) {
+// NOTE (Week 4): parse() is now async (error recovery may call an API).
+async function run(src) {
   const tokens = tokenize(src);
-  return parse(tokens); // { ast, symbolTable }
+  return parse(tokens); // { ast, symbolTable, recoveryLog }
 }
 
-samples.forEach((sample, idx) => {
-  console.log(`\n=== Sample ${idx + 1}: ${sample.label} ===`);
-  console.log(`Input: ${JSON.stringify(sample.src)}`);
-  try {
-    const { symbolTable } = run(sample.src);
-    console.log('Symbol Table:', JSON.stringify(symbolTable.toJSON(), null, 2));
-  } catch (err) {
-    console.log(`  -> Caught error as expected: [${err.name}] ${err.message}`);
+async function main() {
+  for (let idx = 0; idx < samples.length; idx++) {
+    const sample = samples[idx];
+    console.log(`\n=== Sample ${idx + 1}: ${sample.label} ===`);
+    console.log(`Input: ${JSON.stringify(sample.src)}`);
+    try {
+      const { symbolTable, recoveryLog } = await run(sample.src);
+      if (recoveryLog.length > 0) {
+        console.log(`  (ML recovery applied ${recoveryLog.length} fix(es))`);
+      }
+      console.log('Symbol Table:', JSON.stringify(symbolTable.toJSON(), null, 2));
+    } catch (err) {
+      console.log(`  -> Caught error as expected: [${err.name}] ${err.message}`);
+    }
   }
-});
+  console.log('\nAll samples processed.');
+}
 
-console.log('\nAll samples processed.');
+main();
