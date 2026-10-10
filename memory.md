@@ -713,10 +713,30 @@ express) and `frontend/` — the backend crashes on `require('express')`
 otherwise.
 
 **TODO / not yet verified:**
-- Dead-code highlighting in the Optimization tab is untested in the UI:
-  none of the sample DSL scripts produce removed quadruples (the
-  optimizer only removes quads whose result is never used). Worth
-  finding/adding a script that triggers it before the demo.
+- Dead-code highlighting in the Optimization tab is untested in the UI.
+  CORRECTION (found while writing the README): no valid OptiScript
+  program can trigger it — icg.js always wires every temp into one
+  consumer, as optimizer.js's own header notes — so there is no script
+  to find. For the demo, show `npm run test:optimizer` (hand-built
+  quadruple lists with real dead defs) instead of the playground.
 - Panel body is a fixed 240px tall; a program with many routes just
   scrolls inside it. Fine for the demo, easy to make resizable later.
 - Remaining Week 8: Day 6 report/docs, Day 7 demo script.
+
+---
+
+## 2026-10-10 — Final README written
+
+**What was built:** root `README.md` — quick start, DSL + BNF, pipeline
+diagram, syllabus-module table, folder-by-folder guide (what each phase
+does and its test script), ML error-recovery explanation (ML -> Levenshtein
+heuristic -> typed ParserError), error-type table, known limitations,
+25 viva Q&As, and a 5-minute demo script.
+
+**Verified:** all 8 backend test suites pass (`npm run test:*`); Q11's
+quadruples and the parser method names were checked against the real
+code/output, not written from memory.
+
+**Decision:** the README says openly that the optimizer removes nothing
+on valid programs (Q14 + Limitations) rather than hiding it — better to
+explain it than be caught out in the viva.
