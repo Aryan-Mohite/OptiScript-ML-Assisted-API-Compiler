@@ -134,3 +134,31 @@
 .tree__attr {
   color: var(--text-secondary);
 }
+
+/* DB Result tab */
+.phases__sql {
+  margin-bottom: 4px;
+  font-family: var(--font-code);
+  font-size: 12.5px;
+  color: var(--text-primary);
+}
+
+.phases__params {
+  color: var(--text-secondary);
+}
+
+.phases__error {
+  margin: 4px 0 8px;
+  color: var(--error);
+  font-size: 12.5px;
+}
+
+/* Result tables size to their content instead of stretching full width. */
+.phases__table--auto {
+  width: auto;
+}
+
+.phases__table--auto th,
+.phases__table--auto td {
+  padding-right: 28px;
+}

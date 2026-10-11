@@ -13,6 +13,7 @@ import './PhasesPanel.css';
  *   Symbol Table   - Module 3  (routes, tables, fields)
  *   Quadruples     - Module 4  (intermediate code)
  *   Optimization   - Module 5  (before/after dead-code elimination)
+ *   DB Result      - the compiler's SQL, run on the database, and what came back
  *
  * This component does no compiling — it only renders fields that
  * compile() already returned.
@@ -24,11 +25,12 @@ const TABS = [
   { id: 'symbols', label: 'Symbol Table' },
   { id: 'quads', label: 'Quadruples' },
   { id: 'optimized', label: 'Optimization' },
+  { id: 'db', label: 'DB Result' },
 ];
 
-export default function PhasesPanel({ result, status }) {
+// `tab` is controlled by App so "Run on DB" can jump straight to DB Result.
+export default function PhasesPanel({ result, status, tab, onTabChange }) {
   const [open, setOpen] = useState(true);
-  const [tab, setTab] = useState('console');
 
   return (
     <div className={`console-panel${open ? '' : ' console-panel--collapsed'}`}>
@@ -39,7 +41,7 @@ export default function PhasesPanel({ result, status }) {
               key={t.id}
               className={`phases__tab${tab === t.id ? ' phases__tab--active' : ''}`}
               onClick={() => {
-                setTab(t.id);
+                onTabChange(t.id);
                 setOpen(true);
               }}
             >
@@ -61,6 +63,7 @@ export default function PhasesPanel({ result, status }) {
           {tab === 'symbols' && <SymbolsTab result={result} />}
           {tab === 'quads' && <QuadsTab result={result} />}
           {tab === 'optimized' && <OptimizedTab result={result} />}
+          {tab === 'db' && <DbTab result={result} />}
         </div>
       )}
     </div>
@@ -100,7 +103,7 @@ function ConsoleTab({ result, status }) {
 function TokensTab({ result }) {
   if (!result?.tokens) return <Empty result={result} what="tokens" />;
   // recoveryLog.position is the index of the token the parser corrected
-  const fixed = new Set((result.recoveryLog || []).map((r) => r.position));
+  const fixed = new Map((result.recoveryLog || []).map((r) => [r.position, r.action]));
   return (
     <table className="phases__table">
       <thead>
@@ -111,7 +114,7 @@ function TokensTab({ result }) {
           <tr key={i} className={fixed.has(i) ? 'phases__row--flag' : ''}>
             <td>{i}</td>
             <td>{t.type}</td>
-            <td>{t.value === '' ? '' : String(t.value)}{fixed.has(i) ? '   ← corrected by error recovery' : ''}</td>
+            <td>{t.value === '' ? '' : String(t.value)}{fixed.has(i) ? (fixed.get(i) === 'insert' ? '   ← inserted by error recovery' : '   ← corrected by error recovery') : ''}</td>
             <td>{t.line}</td>
           </tr>
         ))}
@@ -290,4 +293,73 @@ function OptimizedTab({ result }) {
       </div>
     </>
   );
+}
+
+/* ---------------------------- DB Result tab ---------------------------- */
+
+function RowsTable({ rows }) {
+  if (rows.length === 0) return <div className="phases__empty">0 rows</div>;
+  const columns = Object.keys(rows[0]);
+  return (
+    <table className="phases__table phases__table--auto">
+      <thead>
+        <tr>{columns.map((c) => <th key={c}>{c}</th>)}</tr>
+      </thead>
+      <tbody>
+        {rows.map((row, i) => (
+          <tr key={i}>{columns.map((c) => <td key={c}>{cell(row[c])}</td>)}</tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+// The compiler's output as the database will receive it: SQL + parameters.
+function QueryHeader({ q }) {
+  return (
+    <>
+      <div className="phases__heading">{q.method} {q.path}</div>
+      <div className="phases__sql">
+        {q.sql}
+        {q.params.length > 0 && <span className="phases__params">   params: {JSON.stringify(q.params)}</span>}
+      </div>
+    </>
+  );
+}
+
+function DbTab({ result }) {
+  if (!result) return <div className="phases__empty">Write a script and click Run on DB.</div>;
+  if (result.errors?.length > 0) {
+    return <div className="phases__empty">The script did not compile, so nothing was sent to the database (see the Console tab).</div>;
+  }
+  if (result.dbError) return <div className="phases__error">{result.dbError}</div>;
+
+  // Compiled with the Compile button: show what WOULD be sent.
+  if (!result.dbResults) {
+    return (
+      <>
+        <div className="phases__summary">
+          Compiled only. This is what the compiler hands to the database; click Run on DB to run it.
+        </div>
+        {(result.queries || []).map((q, i) => <QueryHeader key={i} q={q} />)}
+      </>
+    );
+  }
+
+  return result.dbResults.map((r, i) => (
+    <div key={i}>
+      <QueryHeader q={r} />
+      {r.status === 'error' && <div className="phases__error">{r.error}</div>}
+      {r.status === 'skipped' && <div className="phases__note">{r.note}</div>}
+      {r.status === 'ok' && r.kind === 'select' && (
+        <>
+          <div className="phases__summary">{r.rowCount} row(s)</div>
+          <RowsTable rows={r.rows} />
+        </>
+      )}
+      {r.status === 'ok' && r.kind === 'insert' && (
+        <div className="phases__summary">{r.affectedRows} row inserted (id {r.insertId}). Run a GET to see it.</div>
+      )}
+    </div>
+  ));
 }

@@ -20,6 +20,18 @@
   color: var(--text-primary);
 }
 
+.app__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.app__notice {
+  margin-right: 6px;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+}
+
 /* design.md calls for "a simple, unstyled Compile button" — kept
    deliberately plain, not a bright call-to-action, to match the
    overall low-key, focus-first aesthetic. */

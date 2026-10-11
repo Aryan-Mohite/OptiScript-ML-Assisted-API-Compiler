@@ -34,11 +34,21 @@ npm run dev               # http://localhost:5173
 ```
 
 > Both folders need their own `npm install`. The Vite dev server proxies
-> `/compile` to the backend, so no CORS setup is needed.
+> `/compile`, `/run` and `/db` to the backend, so no CORS setup is needed.
 
-**Optional ML mode:** set `ANTHROPIC_API_KEY` before `npm start`. Without it
-the compiler uses the offline heuristic fallback (see Phase 4 below), so the
-demo works with no internet and no key.
+**Database (to use the "Run on DB" button):** start MySQL, copy `.env.example`
+to `.env` and set `DB_USER` / `DB_PASSWORD`. That's it: the first "Run on DB"
+creates the `optiscript_demo` database from `db/schema.sql` + `db/data.sql`.
+Use the **Reset DB** button (or `npm run db:setup`) to put the sample data back,
+and `npm run test:db` for the integration test (it uses its own database).
+Without MySQL everything else still works; "Compile" never touches the database.
+
+**Optional ML mode:** copy `.env.example` to `.env` and paste a **free Gemini
+key** (https://aistudio.google.com/apikey) as `GEMINI_API_KEY`. `npm start`
+reads `.env` automatically and prints which ML provider is active. An
+`ANTHROPIC_API_KEY` also works, and if both are set Gemini is tried first
+(`ML_PROVIDER=anthropic` flips that). Without any key the compiler uses the
+offline fallback (Section 5), so the demo works with no internet and no key.
 
 **Run the tests:**
 ```bash
@@ -62,7 +72,7 @@ POST /books        -> INSERT INTO library_db WHERE title = "Dune"
 - **Symbols:** `->  /  (  )  =`
 - **Literals:** identifiers, integers, `"strings"`
 
-Full grammar: [`docs/grammar.md`](docs/grammar.md) and [`docs/cfg.md`](docs/cfg.md).
+Full grammar: [`compiler/docs/grammar.md`](compiler/docs/grammar.md) and [`compiler/docs/cfg.md`](compiler/docs/cfg.md).
 
 ```text
 <program>     ::= <statement>* EOF
@@ -101,23 +111,39 @@ Full grammar: [`docs/grammar.md`](docs/grammar.md) and [`docs/cfg.md`](docs/cfg.
  [codegen/]   Express.js routes + MySQL queries          (Module 6)
 ```
 
-`compiler.js` wires all of these into one function, `compile(source)`, and
-`server.js` exposes it as `POST /compile`.
+`compiler/compiler.js` wires all of these into one function, `compile(source)`.
+`server/server.js` exposes it as `POST /compile`, and as `POST /run`, which also
+sends the compiler's SQL to the database (see Section 4).
 
 | Syllabus Module | Phase | Folder / File |
 |---|---|---|
-| 1 — Lexical Analysis | Hand-coded lexer | `lexer/lexer.js` |
-| 2 — Syntax Analysis (LL) | Recursive-descent predictive parser + ML recovery | `parser/parser.js`, `parser/mlRecovery.js` |
-| 3 — SDT & Symbol Table | Symbol table filled during parsing | `semantic/symbolTable.js` |
-| 4 — Intermediate Code | Quadruples | `icg/icg.js` |
-| 5 — Code Optimization | Basic blocks, dead-code elimination | `optimizer/optimizer.js` |
-| 6 — Code Generation | Express + MySQL output | `codegen/codegen.js` |
+| 1 — Lexical Analysis | Hand-coded lexer | `compiler/lexer/lexer.js` |
+| 2 — Syntax Analysis (LL) | Recursive-descent predictive parser + ML recovery | `compiler/parser/parser.js`, `compiler/parser/mlRecovery.js` |
+| 3 — SDT & Symbol Table | Symbol table filled during parsing | `compiler/semantic/symbolTable.js` |
+| 4 — Intermediate Code | Quadruples | `compiler/icg/icg.js` |
+| 5 — Code Optimization | Basic blocks, dead-code elimination | `compiler/optimizer/optimizer.js` |
+| 6 — Code Generation | Express + MySQL output | `compiler/codegen/codegen.js` |
 
 ---
 
 ## 4. Folder-by-Folder Guide
 
-### `lexer/` — Phase 1: Lexical Analysis
+The project is three independent parts. Only the thin `server/` part knows both
+of the others exist:
+
+```text
+ compiler/  ──── queries (SQL + values) ────►  server/  ────►  db/
+ the compiler                                  the bridge       schema.sql + data.sql
+ (knows nothing about databases)               (runs the SQL)   (plain SQL, no code)
+```
+
+- **`compiler/`** turns OptiScript into Express code and a list of `queries`.
+  A test checks it never loads a database library.
+- **`db/`** is just two SQL files: the schema and the sample data.
+- **`server/`** takes the compiler's `queries` and runs them on MySQL. Only SQL
+  that the compiler produced is ever executed, using `?` placeholders.
+
+### `compiler/lexer/` — Phase 1: Lexical Analysis
 - **Does:** scans the source one character at a time (hand-coded, no regex
   generator) and produces tokens shaped `{ type, value, line }`.
 - **Token types:** `KEYWORD, IDENTIFIER, STRING, NUMBER, ARROW, SLASH, LPAREN, RPAREN, EQUALS, EOF`.
@@ -125,7 +151,7 @@ Full grammar: [`docs/grammar.md`](docs/grammar.md) and [`docs/cfg.md`](docs/cfg.
 - **Errors:** throws `LexerError` for an unknown character or an unterminated string.
 - **Test:** `npm run test:lexer`
 
-### `parser/` — Phase 2: Syntax Analysis
+### `compiler/parser/` — Phase 2: Syntax Analysis
 - **`parser.js`** — a **recursive-descent predictive (LL(1)) parser**: one
   method per grammar rule (`parseProgram`, `parseRouteStatement`, `parseAction`, …).
   One token of lookahead is always enough to pick the right rule, so there is
@@ -134,7 +160,7 @@ Full grammar: [`docs/grammar.md`](docs/grammar.md) and [`docs/cfg.md`](docs/cfg.
 - **Errors:** `ParserError` when a token is wrong and recovery can't fix it.
 - **Tests:** `npm run test:parser`, `npm run test:mlrecovery`
 
-### `semantic/` — Phase 3: Symbol Table
+### `compiler/semantic/` — Phase 3: Symbol Table
 - **`symbolTable.js`** — the single source of truth for what the program
   defines. Tracks three kinds of symbols in one global scope:
   1. **Routes** (`METHOD /path`) — a duplicate route throws `SymbolTableError`.
@@ -144,7 +170,7 @@ Full grammar: [`docs/grammar.md`](docs/grammar.md) and [`docs/cfg.md`](docs/cfg.
   (e.g. `id = 1` then `id = "x"`).
 - **Test:** `npm run test:symbols`
 
-### `icg/` — Phase 4: Intermediate Code Generation
+### `compiler/icg/` — Phase 4: Intermediate Code Generation
 - **`icg.js`** — walks the AST and emits **quadruples**
   `(Operator, Arg1, Arg2, Result)` using temporaries `T1, T2, …`, textbook style.
 - **Per route, up to 3 quadruples:**
@@ -159,7 +185,7 @@ Full grammar: [`docs/grammar.md`](docs/grammar.md) and [`docs/cfg.md`](docs/cfg.
   ```
 - **Test:** `npm run test:icg`
 
-### `optimizer/` — Phase 5: Optimization
+### `compiler/optimizer/` — Phase 5: Optimization
 - **Basic blocks:** OptiScript has no loops or branches, so every program is
   exactly **one** basic block. The function exists so the concept is explicit.
 - **Dead-code elimination:** one backward liveness pass. `ROUTE` quadruples are
@@ -169,7 +195,7 @@ Full grammar: [`docs/grammar.md`](docs/grammar.md) and [`docs/cfg.md`](docs/cfg.
 - **Test:** `npm run test:optimizer` (uses hand-built quadruple lists that
   contain real dead code — see the Q&A for why).
 
-### `codegen/` — Phase 6: Target Code Generation
+### `compiler/codegen/` — Phase 6: Target Code Generation
 - **`codegen.js`** — reads the **optimized** quadruples. For each `ROUTE` it
   follows the temps back to the `SELECT`/`INSERT` and its `EQ`, then emits an
   Express handler plus its SQL.
@@ -177,16 +203,37 @@ Full grammar: [`docs/grammar.md`](docs/grammar.md) and [`docs/cfg.md`](docs/cfg.
   concatenated into the SQL string (prevents SQL injection in generated code).
 - **Test:** `npm run test:codegen`
 
-### Root files
+### `db/` — the database (schema and data only)
+- **`schema.sql`** — drops and creates the tables `library_db`, `authors_db`,
+  `members_db`. The names match the DSL's `IN <table>` / `INTO <table>`.
+- **`data.sql`** — the sample rows.
+- Running the two files in that order always gives a fresh, known state. There is
+  no code in this folder.
+
+### `server/` — the bridge (the only place compiler and database meet)
+- **`server.js`** — Express API: `POST /compile`, `POST /run`, `POST /db/reset`,
+  `GET /health`. `/run` compiles, then runs `result.queries` on the database and
+  returns the normal compile result plus `dbResults` (or `dbError` if MySQL is off).
+- **`dbRunner.js`** — `setupDatabase()` loads `db/schema.sql` + `db/data.sql`;
+  `runQueries()` runs the compiler's queries as prepared statements and reports
+  rows / insert ids / errors per query. Creates the database on first use.
+- **`db-setup.js`** — `npm run db:setup` (same as the Reset DB button).
+- **`loadEnv.js`** — tiny `.env` reader (no extra package).
+- **`test-bridge.js`** — `npm run test:db`: source → compiler → real MySQL →
+  results, including an SQL-injection attempt and a failing query.
+
+### Compiler files and root files
 | File | Purpose |
 |---|---|
-| `compiler.js` | `compile(source)` — runs every phase, collects results and errors into one object, never throws |
-| `server.js` | Express API: `POST /compile` (body `{ "source": "..." }`) and `GET /health` |
-| `test-compiler.js` | End-to-end tests: PRD example, multi-route, duplicate-route error, `GRT → GET` recovery |
+| `compiler/compiler.js` | `compile(source)` — runs every phase, collects results and errors into one object, never throws |
+| `compiler/test-compiler.js` | End-to-end tests: PRD example, multi-route, duplicate-route error, `GRT → GET` recovery, missing `->` / `IN` insertion, the `queries` output, and that the compiler loads no database code |
+| `compiler/docs/` | `grammar.md` (tokens), `cfg.md` (BNF + LL(1) analysis), `week4-integration.md` |
+| `examples/library.optiscript` | A sample program to paste into the playground |
+| `.env.example` | ML keys and `DB_*` settings (copy to `.env`) |
 | `memory.md` | Running log of what was built each week, decisions, gotchas, TODOs |
-| `docs/` | `grammar.md` (tokens), `cfg.md` (BNF + LL(1) analysis), `week4-integration.md` |
 
-`compile()` returns: `tokens, ast, symbolTable, recoveryLog, warnings, basicBlocks, quadruples, optimizedQuadruples, removedQuadruples, expressCode, sqlCode, errors`.
+`compile()` returns: `tokens, ast, symbolTable, recoveryLog, warnings, basicBlocks, quadruples, optimizedQuadruples, removedQuadruples, expressCode, sqlCode, queries, errors`.
+`queries` is the list the database receives: `{ method, path, sql, params, runnable }` per route.
 Any field stays `null` if the pipeline stopped before reaching that phase.
 
 ### `frontend/` — React Playground
@@ -203,25 +250,40 @@ Any field stays `null` if the pipeline stopped before reaching that phase.
 
 ## 5. The ML Error Recovery (the novel part)
 
-When the parser expects one token but finds another, `_recoverOrThrow()` calls
-`attemptRecovery()` in `parser/mlRecovery.js`, which tries three things in order:
+When the parser expects one token but finds another, `_recoverOrThrow()` tries
+to repair the token stream. A fix is one of two kinds:
 
-1. **ML call** — sends the expected grammar rule, the bad token and nearby
-   tokens to an LLM and demands **only** a small JSON object:
-   `{"corrected": true, "type": "KEYWORD", "value": "GET"}`. The reply is
-   validated; anything that isn't exactly that shape is rejected.
+- **replace** a wrong token (`GRT` → `GET`)
+- **insert** a missing token (`GET /books FIND ...` → add `->`)
+
+It tries, in order:
+
+1. **ML call** — `attemptRecovery()` in `compiler/parser/mlRecovery.js` sends the expected
+   token, the bad token and nearby tokens to an LLM (**Gemini** and/or
+   **Anthropic**, whichever has a key; Gemini first) and demands **only** a small
+   JSON object: `{"corrected": true, "action": "insert", "type": "ARROW", "value": "->"}`.
+   The reply is validated (exact shape, real token type); anything else is rejected.
 2. **Heuristic fallback** — finds the closest real keyword/symbol using
-   **Levenshtein edit distance** (≤ 2). Used when there's no API key, the call
-   fails, or the ML answer is invalid.
-3. **Give up cleanly** — returns `corrected: false`, and the parser throws a
-   normal `ParserError`.
+   **Levenshtein edit distance** (≤ 2) and replaces the bad token. Used when there
+   is no key, the call fails, or the ML answer is invalid.
+3. **Phrase-level insertion** — if exactly *one* token could have been expected
+   (e.g. only `->`, or only `IN`), that token is the missing one, so it is
+   inserted. No guessing: with several choices (`GET`/`POST`, `FIND`/`INSERT`) or
+   a varying token (a table name), nothing is inserted. Never done at end of
+   input, where the program is simply incomplete.
+4. **Give up cleanly** — the parser throws a normal `ParserError`.
+
+**Safety check:** after any fix is applied, the parser checks that the patched
+token really satisfies the grammar rule. If not (e.g. the model hallucinated),
+the patch is undone, so a bad fix can never reach the AST.
 
 **Guarantee (from `rules.md`):** `attemptRecovery()` *never throws*. A timeout
-(6 s), network error, bad JSON or hallucinated answer all end in step 2 or 3,
-so the compiler can't be crashed by the ML service.
+(8 s), network error, bad JSON or hallucinated answer all end in a later step, so
+the compiler can't be crashed by the ML service.
 
-Each fix is recorded in `recoveryLog` with `source: 'ml' | 'heuristic'`, and the
-playground shows it in the Console and Tokens tabs.
+Each fix is recorded in `recoveryLog` with `source: 'ml' | 'heuristic'`,
+`action: 'replace' | 'insert'` (and `provider` for ML), and the playground shows
+it in the Console and Tokens tabs.
 
 ---
 
@@ -230,7 +292,7 @@ playground shows it in the Console and Tokens tabs.
 | Error | Raised by | Example |
 |---|---|---|
 | `LexerError` | lexer | `GET /books @ ...` (unknown character) |
-| `ParserError` | parser | missing `->` that recovery couldn't fix |
+| `ParserError` | parser | a bad token recovery couldn't fix (e.g. program ends after the path, or `FIND`/`INSERT` missing) |
 | `SymbolTableError` | symbol table | two `GET /books` routes |
 | `CodegenError` | codegen | internal code-generation failure |
 
@@ -244,10 +306,18 @@ All are caught in `compile()` and returned in `result.errors` as
 - The DSL is small: two methods, two actions, one optional `WHERE x = value`.
 - A valid OptiScript program **never contains dead code** (see Q&A #14), so the
   optimizer's removal path is shown through `test-optimizer.js`, not the playground.
-- Generated Express code expects a `./db` module (a `mysql2` pool) that isn't
-  included — fine for showing code, needed only to actually run the routes.
-- ML mode needs `ANTHROPIC_API_KEY`; the model name is the `MODEL` constant at
-  the top of `parser/mlRecovery.js`.
+- The playground's **Run on DB** runs the compiler's SQL directly on MySQL; the
+  generated Express code is shown but not executed. The DSL has no way to take
+  values from a request: `POST /books -> INSERT INTO library_db WHERE title = "Dune"`
+  always inserts the literal "Dune". Each Run on DB click inserts again (use Reset DB).
+- `/run` executes whatever SQL the compiler produced against the configured
+  database, with no login. That is fine for a local demo, but don't expose it
+  publicly. A MySQL user with only SELECT/INSERT rights is a good extra precaution.
+- `INSERT` can set only one field, and `SELECT` has no ordering or limits.
+- ML mode needs `GEMINI_API_KEY` or `ANTHROPIC_API_KEY` (see `.env.example`).
+  Model names can be changed with `GEMINI_MODEL` / `ANTHROPIC_MODEL` if a
+  provider retires one. The live ML call can't run in the automated tests (they
+  use a fake `fetch`), so try it once by hand with your key.
 
 ---
 
@@ -335,9 +405,11 @@ chosen, so it doesn't depend on the target.
 
 **Q16. How does the ML error recovery work?**
 On a parse error the parser sends the expected rule, the bad token and nearby
-tokens to an LLM and asks for one corrected token as strict JSON. The reply is
-validated. If it fails, a Levenshtein-distance heuristic suggests the closest
-real keyword. If that fails too, a normal `ParserError` is thrown.
+tokens to an LLM (Gemini or Anthropic) and asks for one fix as strict JSON: either
+replace the wrong token or insert a missing one. The reply is validated. If it
+fails, a Levenshtein-distance heuristic suggests the closest real keyword; if
+exactly one token was expected, it is inserted. If all fail, a normal
+`ParserError` is thrown.
 
 **Q17. What if the ML model returns something wrong or the API is down?**
 `attemptRecovery()` never throws. Timeouts, network errors, invalid JSON and
@@ -382,7 +454,8 @@ its own test script, and `test-compiler.js` tests the whole pipeline.
 Small DSL (two methods, two actions, one `=` condition). Possible extensions:
 PUT/DELETE, more operators and multiple conditions, UPDATE/DELETE actions,
 variables and scopes (which would also make dead-code elimination meaningful),
-and a real `db.js` so generated routes can run.
+request-body values for `POST` (so one route can insert real data), and
+`UPDATE`/`DELETE` routes.
 
 ---
 
@@ -392,9 +465,12 @@ and a real `db.js` so generated routes can run.
    left to right: Tokens → Parse Tree → Symbol Table → Quadruples → Optimization → generated code.
 2. **Multi-route with WHERE** — add `POST` and `GET /books/1 ... WHERE id = 1`
    and show the `?` placeholders in the generated SQL.
-3. **Broken input** — change `GET` to `GRT`. Show the corrected token in the
+3. **Run on the database** — click **Run on DB**: the **DB Result** tab shows the
+   SQL the compiler produced, its `?` values, and the rows MySQL returned. Run a
+   `POST ... INSERT`, then a `GET`, to see the new row. Click **Reset DB** afterwards.
+4. **Broken input** — change `GET` to `GRT`. Show the corrected token in the
    Tokens tab and the recovery line in the Console.
-4. **Semantic error** — duplicate `GET /books`; show the `SymbolTableError`
+5. **Semantic error** — duplicate `GET /books`; show the `SymbolTableError`
    and the highlighted line.
-5. **Dead-code elimination** — run `npm run test:optimizer` and show the
+6. **Dead-code elimination** — run `npm run test:optimizer` and show the
    hand-built quadruples with the removed ones (see Q14).

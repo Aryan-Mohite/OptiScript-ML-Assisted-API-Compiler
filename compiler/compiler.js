@@ -45,6 +45,7 @@ async function compile(sourceCode) {
     removedQuadruples: null,
     expressCode: null,
     sqlCode: null,
+    queries: null,
     errors: [],
   };
 
@@ -90,8 +91,9 @@ async function compile(sourceCode) {
 
   // ---- Phase 6: Target Code Generation ----
   try {
-    const { expressCode, sqlStatements } = generateCode(optimized);
+    const { expressCode, sqlStatements, queries } = generateCode(optimized);
     result.expressCode = expressCode;
+    result.queries = queries;
     result.sqlCode = sqlStatements.join(';\n') + (sqlStatements.length ? ';' : '');
   } catch (err) {
     result.errors.push({ phase: 'codegen', name: err.name || 'CodegenError', message: err.message });

@@ -18,6 +18,9 @@
  * -----------------------------------------------------------------------
  */
 
+// Keep this suite offline + deterministic even if real ML keys are set.
+for (const k of ['GEMINI_API_KEY', 'GOOGLE_API_KEY', 'ANTHROPIC_API_KEY']) delete process.env[k];
+
 const { compile } = require('./compiler');
 
 const samples = [
@@ -44,6 +47,30 @@ GET /books -> FIND all IN library_db`,
     src: `GRT /books -> FIND all IN library_db`,
     expectError: false,
     expectRecovery: true,
+  },
+  {
+    label: "Missing token mid-line: no '->' (recovered by insertion)",
+    src: `GET /books FIND all IN library_db`,
+    expectError: false,
+    expectRecovery: true,
+    expectAction: 'insert',
+  },
+  {
+    label: "Missing keyword: no 'IN' (recovered by insertion)",
+    src: `GET /books -> FIND all library_db`,
+    expectError: false,
+    expectRecovery: true,
+    expectAction: 'insert',
+  },
+  {
+    label: 'Incomplete program (ends early) is NOT guessed — clear ParserError',
+    src: `GET /books`,
+    expectError: true,
+  },
+  {
+    label: 'Ambiguous choice (FIND or INSERT?) is NOT guessed — clear ParserError',
+    src: `GET /books -> all IN library_db`,
+    expectError: true,
   },
 ];
 
@@ -74,11 +101,44 @@ async function main() {
       console.log(`Recovery log: ${JSON.stringify(result.recoveryLog)}`);
       console.log(recovered ? 'PASS (ML/heuristic recovery kicked in, still compiled clean)' : 'FAIL (expected a recovery entry)');
       if (!recovered) allOk = false;
+      if (sample.expectAction) {
+        const actionOk = result.recoveryLog.some((r) => r.action === sample.expectAction);
+        console.log(actionOk ? `PASS (recovery action was '${sample.expectAction}')` : `FAIL (expected action '${sample.expectAction}')`);
+        if (!actionOk) allOk = false;
+      }
     }
 
     console.log(ok ? 'PASS (compiled with no errors, express + SQL generated)' : 'FAIL');
     if (!ok) allOk = false;
   }
+
+  // ---- Output contract: `queries` is what a database receives ----
+  const assertEq = (label, actual, expected) => {
+    const ok = JSON.stringify(actual) === JSON.stringify(expected);
+    console.log(`${ok ? 'PASS' : 'FAIL'} ${label}`);
+    if (!ok) {
+      console.log(`  expected ${JSON.stringify(expected)}\n  got      ${JSON.stringify(actual)}`);
+      allOk = false;
+    }
+  };
+  console.log('\n=== queries (compiler output that a database can run) ===');
+  assertEq('plain FIND', (await compile('GET /books -> FIND all IN library_db')).queries,
+    [{ method: 'GET', path: '/books', sql: 'SELECT * FROM `library_db`', params: [], runnable: true }]);
+  assertEq('FIND with number WHERE -> params [1]', (await compile('GET /b/1 -> FIND all IN library_db WHERE id = 1')).queries[0].params, [1]);
+  assertEq('INSERT with string WHERE', (await compile('POST /b -> INSERT INTO library_db WHERE title = "Dune"')).queries[0],
+    { method: 'POST', path: '/b', sql: 'INSERT INTO `library_db` (`title`) VALUES (?)', params: ['Dune'], runnable: true });
+  assertEq('INSERT with no WHERE is flagged not runnable', (await compile('POST /l -> INSERT INTO logs_db')).queries[0].runnable, false);
+  assertEq('a broken program has no queries', (await compile('GET /a')).queries, null);
+
+  // ---- Isolation: the compiler must know nothing about databases ----
+  // Check what Node ACTUALLY loaded, not what the text says (codegen's
+  // output text mentions require('./db'), but that is output, not an import).
+  const path = require('path');
+  const outside = Object.keys(require.cache).filter(
+    (file) => !file.includes('node_modules') && !file.startsWith(__dirname + path.sep)
+  );
+  assertEq('every module the compiler loaded lives inside compiler/', outside, []);
+  assertEq('mysql2 was never loaded by the compiler', Object.keys(require.cache).some((k) => k.includes('mysql2')), false);
 
   console.log(`\n${allOk ? 'All end-to-end samples behaved as expected.' : 'SOME SAMPLES FAILED — see above.'}`);
   if (!allOk) process.exit(1);

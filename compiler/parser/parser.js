@@ -2,7 +2,7 @@
  // parser.js
 
 const { SymbolTable } = require('../semantic/symbolTable');
-const { attemptRecovery } = require('./mlRecovery');
+const { attemptRecovery, suggestInsertion } = require('./mlRecovery');
 
 class ParserError extends Error {
   constructor(message, line) {
@@ -88,49 +88,77 @@ class Parser {
     const expectedDesc = options
       .map((o) => (o.value !== undefined ? `${o.type} '${o.value}'` : o.type))
       .join(' or ');
+    const line = tok ? tok.line : prevLine;
 
+    // Attempt 1: ask ML / heuristic. The answer is either "replace the
+    // wrong token" (GRT -> GET) or "insert a missing one" (add '->').
     const recovery = await attemptRecovery({
       badToken: tok,
       expected: expectedDesc,
+      expectedOptions: options,
       contextTokens: this.tokens.slice(Math.max(0, this.pos - 2), this.pos + 2),
-      line: tok ? tok.line : prevLine,
+      line,
     });
+    if (recovery.corrected && this._applyPatch(recovery, tok, options, expectedDesc, line)) {
+      return this.advance();
+    }
 
-    if (recovery.corrected) {
-      const fixedToken = { type: recovery.type, value: recovery.value, line: tok ? tok.line : prevLine };
-
-      if (tok) {
-        this.tokens[this.pos] = fixedToken; // replace the wrong token
-      } else {
-        this.tokens.splice(this.pos, 0, fixedToken); // insert a missing token at EOF
-      }
-
-      // Retry now that the stream is patched. If the suggested fix STILL
-      // doesn't satisfy any option — e.g. the bad token was itself a
-      // valid keyword elsewhere (a stray 'FIND' where '->' was expected),
-      // so the heuristic matched it to itself and changed nothing — fall
-      // through below instead of looping forever or logging a fake fix.
-      for (const opt of options) {
-        if (this.check(opt.type, opt.value)) {
-          this.recoveryLog.push({ ...recovery, expected: expectedDesc, position: this.pos, line: fixedToken.line });
-          return this.advance();
-        }
-      }
-
-      // Fix didn't help — undo the splice/replace so the error message
-      // below reports the ORIGINAL bad token, not the patched one.
-      if (tok) {
-        this.tokens[this.pos] = tok;
-      } else {
-        this.tokens.splice(this.pos, 1);
-      }
+    // Attempt 2: phrase-level insertion. If exactly one token could have
+    // been expected here, it is the one that's missing, so insert it.
+    // Not done at end of input: there the program is just incomplete, and
+    // inserting would cascade into a confusing error further along.
+    const insertion = tok ? suggestInsertion(options) : null;
+    if (
+      insertion &&
+      this._applyPatch({ corrected: true, ...insertion, action: 'insert', source: 'heuristic' }, tok, options, expectedDesc, line)
+    ) {
+      return this.advance();
     }
 
     const found = tok ? (tok.value !== null ? `${tok.type} '${tok.value}'` : tok.type) : 'EOF';
     throw new ParserError(
       message || `Expected ${expectedDesc} but found ${found}`,
-      tok ? tok.line : prevLine
+      line
     );
+  }
+
+  // Applies a recovery patch to the token stream, then checks that the
+  // parser would now accept the token. If not (e.g. the model hallucinated
+  // something that doesn't fit the grammar), the patch is undone and false
+  // is returned, so a bad fix can never get into the AST.
+  _applyPatch(patch, tok, options, expectedDesc, line) {
+    const fixedToken = { type: patch.type, value: patch.value, line };
+    const inserting = patch.action === 'insert' || !tok;
+    const original = this.tokens[this.pos];
+
+    if (inserting) {
+      this.tokens.splice(this.pos, 0, fixedToken); // add the missing token
+    } else {
+      this.tokens[this.pos] = fixedToken; // replace the wrong token
+    }
+
+    if (options.some((opt) => this.check(opt.type, opt.value))) {
+      this.recoveryLog.push({
+        corrected: true,
+        type: patch.type,
+        value: patch.value,
+        source: patch.source,
+        ...(patch.provider ? { provider: patch.provider } : {}),
+        action: inserting ? 'insert' : 'replace',
+        expected: expectedDesc,
+        position: this.pos,
+        line,
+      });
+      return true;
+    }
+
+    // Didn't help — undo so any error reports the ORIGINAL token.
+    if (inserting) {
+      this.tokens.splice(this.pos, 1);
+    } else {
+      this.tokens[this.pos] = original;
+    }
+    return false;
   }
 
   // ---- grammar rule functions (one per rule in docs/cfg.md) ----

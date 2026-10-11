@@ -740,3 +740,200 @@ code/output, not written from memory.
 **Decision:** the README says openly that the optimizer removes nothing
 on valid programs (Q14 + Limitations) rather than hiding it — better to
 explain it than be caught out in the viva.
+
+---
+
+## 2026-10-11 — Review fixes: Gemini support + missing-token recovery
+
+**Why:** a full review of the repo found two Week 4 problems: (1) the ML
+model name (`claude-3-5-haiku-20241022`) was probably retired, and since
+any API failure silently falls back to the heuristic, ML mode would have
+"worked" while never actually calling the model; (2) a token missing
+mid-line (e.g. no `->`) could not be recovered — only replace-a-wrong-token
+or insert-at-EOF existed. Also: no Anthropic key, so Gemini was needed.
+
+**Built / changed:**
+- `parser/mlRecovery.js` — now supports **Gemini** (`GEMINI_API_KEY`,
+  default model `gemini-2.5-flash`, REST `generateContent`, JSON mode)
+  and **Anthropic** (`ANTHROPIC_API_KEY`, default `claude-haiku-5-5`).
+  Gemini is tried first; `ML_PROVIDER=anthropic` flips it; if one
+  provider fails the next is tried, then the heuristic. Models are
+  overridable with `GEMINI_MODEL` / `ANTHROPIC_MODEL` (read at call time).
+  Timeout 6s -> 8s. Replies are validated (exact shape + a token type the
+  lexer really has + action is replace|insert).
+- Patch now has an `action`: `replace` (wrong token) or `insert` (missing
+  token, added BEFORE the found one). Prompt updated to ask for it.
+- `suggestInsertion(options)` — if exactly ONE token could have been
+  expected (ARROW -> `->`, KEYWORD `IN`), that is the missing token.
+  Returns null for GET|POST / FIND|INSERT / IDENTIFIER (no guessing).
+- `attemptRecovery` no longer returns a no-op "fix" (heuristic matching
+  the bad token to itself, e.g. stray `FIND` where `->` expected).
+- `parser/parser.js` — `_recoverOrThrow` rewritten: (1) ML/heuristic fix,
+  (2) phrase-level insertion (not at EOF), (3) ParserError. New
+  `_applyPatch()` applies a patch, checks the grammar accepts it, and
+  UNDOES it if not — so a hallucinated fix never reaches the AST.
+  `recoveryLog` entries gain `action` (+ `provider` for ML).
+- `server.js` — tiny built-in `.env` loader (no new dependency; real env
+  vars win) and a startup line showing the active ML provider(s).
+- `.env.example` added (`.env` was already gitignored).
+- Frontend: Console says "inserted missing '->'" vs "corrected to", and
+  includes the provider; Tokens tab labels inserted tokens.
+- README Section 5, error table, limitations, Q16 and the ML-mode quick
+  start updated.
+
+**Tests:** `mlRecovery.test.js` 10 -> 20 (provider order, Gemini request
+URL/key header, model override, Gemini->Anthropic fallthrough, hallucinated
+type rejected, network error/garbage never throws, insertion rules, no-op
+filter — all with a fake `fetch`, no network). `test-compiler.js` 4 -> 8
+(missing `->`, missing `IN`, incomplete program, ambiguous FIND|INSERT).
+Both suites now clear ML key env vars so they stay offline/deterministic.
+All 8 backend suites pass; frontend build + oxlint clean. Live server
+smoke-tested with a `.env` file: key + PORT loaded, missing-`->` input
+compiled via insertion even with an invalid Gemini key.
+
+**Key decisions:**
+- No insertion at end of input: `GET /books` stays a clear
+  "Expected '->'" error instead of cascading into inserted FIND/all/IN.
+- Gemini `thinkingBudget: 0` only for 2.5-flash models (one-token fix
+  doesn't need thinking, and thinking eats the output token budget).
+
+**NOT verified:** a real call to the live Gemini API (no key in the
+sandbox). Do once by hand: put the key in `.env`, `npm start` (should print
+`ML error recovery: gemini`), then compile a typo like `GRT /books -> ...`
+— the Console should say "Fixed via ML (gemini)" unless the model name has
+changed (then it silently uses the heuristic; set `GEMINI_MODEL`).
+Gemini's free tier also has rate limits, so don't spam the Compile button.
+
+**Still open from the review:** dead-code elimination can't be triggered
+by a valid program (demo via `npm run test:optimizer`); empty input
+compiles to a route-less app; `db.js` / `mysql2` still not included.
+
+---
+
+## 2026-10-11 — Database layer: db.js + MySQL setup + runner + integration test
+
+**Why:** generated code did `require('./db')` but no `db.js` existed, so
+generated routes could never actually run. (Dead-code elimination is
+deliberately left as is — decided to skip it.)
+
+**Built:**
+- `db.js` — `mysql2` pool (callback API, because generated code calls
+  `db.query(sql, params, cb)`); lazy connect so the compiler still starts
+  with MySQL off; 5s connect timeout; `db.checkConnection()` helper.
+- `dbConfig.js` — DB_HOST/PORT/USER/PASSWORD/NAME, read at CALL time (so
+  the test can switch database). Defaults: 127.0.0.1:3306, root, no
+  password, `optiscript_demo`. 127.0.0.1 not `localhost` on purpose (IPv6).
+- `loadEnv.js` — the `.env` loader moved out of `server.js` so server, db
+  code and scripts share it. Real env vars still win over `.env`.
+- `db/schema.sql` + `db/setup.js` — `npm run db:setup` (`-- --reset` to
+  start fresh). Creates the DB + tables `library_db`, `authors_db`,
+  `members_db`, seeds a table only if empty (safe to run twice). Columns
+  are NULLable because an OptiScript INSERT sets just one field.
+- `scripts/run-generated.js` — `npm run run:generated -- <file> [port]`:
+  compiles, writes `generated/app.js` + `generated/db.js` (a one-line
+  re-export of `../db`, because generated code requires `./db`), serves it.
+  `examples/library.optiscript` added. `generated/` is gitignored.
+- `server.js` — `GET /health/db` (200 ok / 503 with message).
+- `.env.example` gets the DB_* variables; `mysql2` added to dependencies.
+- README: quick start, a Database section in the folder guide, limitations.
+
+**Verified against a REAL database** (MariaDB 10.11 installed in the
+sandbox — MySQL-compatible): `db:setup` twice (idempotent), generated API
+served real rows over HTTP, POST really inserted (row count 3 -> 4).
+`db/test-db.js` — 9 tests pass: seeded tables, GET all, `WHERE id = 1`
+(number param), `WHERE year = 1984`, SQL-injection string returns no rows
+and damages nothing, POST 201 + insertedId + row present in MySQL,
+missing table -> 500 JSON and the server keeps serving, `/health/db` ok
+and 503 (dead port, separate process). The 8 core suites still pass.
+Not tested against Oracle MySQL itself (only MariaDB) — same protocol and
+`mysql2` supports both, but MySQL 8 + `root` often needs a password or a
+dedicated user; create one if you get an auth error.
+
+**Gotchas:**
+- `npm run test:db` is NOT part of the offline suites — it needs MySQL.
+  It exits 1 with a clear message if MySQL is unreachable.
+- Don't `pkill -f run-generated.js` in a shell command that contains that
+  text — it kills the shell itself. Use `kill $PID`.
+- The DSL's `IN library_db` is a TABLE name (not a database name), so the
+  schema has a table literally called `library_db`.
+
+**Known limitation (documented in README):** DSL has no request-body
+values, so `POST /books -> INSERT ... WHERE title = "Dune"` inserts the
+literal every call.
+
+**Still open:** dead-code elimination still can't be triggered by a valid
+program (skipped on purpose); empty input compiles to a route-less app;
+the live Gemini call still needs one manual test with a real key.
+
+---
+
+## 2026-10-11 — Restructure: compiler alone, DB alone, compiler output = DB input
+
+**Why:** keep it simple. The project should only *display the working of the
+compiler and the results on the DB*, with the DB holding just its schema and
+data, and the compiler's output being the only input to the DB. The previous
+step had mixed DB code (db.js pool, runner scripts, health endpoint) into the
+project root.
+
+**New layout (three independent parts):**
+```
+compiler/   lexer parser semantic icg optimizer codegen docs compiler.js test-compiler.js
+            -> knows NOTHING about databases
+db/         schema.sql + data.sql   (plain SQL only, no code)
+server/     server.js dbRunner.js db-setup.js loadEnv.js test-bridge.js
+            -> the only place the two meet
+frontend/   React playground      examples/library.optiscript
+```
+Moving everything into `compiler/` needed zero edits inside it: all internal
+requires were relative between sibling folders. Only package.json script
+paths, server requires and `loadEnv` (.env is now `../.env`) changed.
+
+**Compiler change (small):** `codegen` and `compile()` now also return
+`queries: [{ method, path, sql, params, runnable }]` — the compiler's SQL
+output with real parameter values. `runnable` is false for the flagged
+"INSERT with no WHERE" placeholder. The Express code is still generated and
+shown, but is no longer executed anywhere.
+
+**DB side:** `db/schema.sql` drops+creates `library_db`, `authors_db`,
+`members_db`; `db/data.sql` inserts sample rows. Running both in order always
+gives a fresh state, so "reset" = run the two files. No JS in `db/`.
+
+**Bridge (`server/`):**
+- `dbRunner.js` — `setupDatabase()` (CREATE DATABASE IF NOT EXISTS + the two
+  SQL files) and `runQueries(queries)` (one connection, prepared statements via
+  `execute`, per-query result: select rows / insert id / error / skipped).
+  A missing database is created automatically on first use (ER_BAD_DB_ERROR).
+  No pool — one short-lived connection per run keeps it simple.
+- `server.js` — `POST /compile` (unchanged), new `POST /run` (compile, then run
+  ONLY `result.queries`; returns the compile result + `dbResults` or `dbError`;
+  nothing is sent to the DB if compilation failed), new `POST /db/reset`,
+  `GET /health`. Removed `/health/db`.
+- Removed: root `db.js`, `dbConfig.js`, `scripts/run-generated.js`,
+  `db/setup.js`, `db/test-db.js`, the `generated/` output folder.
+
+**Playground:** new buttons **Run on DB** and **Reset DB** next to Compile; new
+**DB Result** tab (shows each query's SQL + params, then a rows table / "1 row
+inserted (id N)" / the DB's error text). After "Compile" only, the tab shows
+what WOULD be sent. Console tab gets a `[DB]` line. Bottom-panel tab state moved
+up into App so Run on DB can jump to the DB tab. Vite proxy adds `/run`, `/db`.
+
+**Tests:** all 8 compiler suites pass. `test-compiler.js` gains the `queries`
+contract checks (5) and an isolation check: every module the compiler loaded
+lives inside `compiler/`, and mysql2 was never loaded (done at runtime via
+`require.cache` — a text grep false-positived on codegen's output string
+`require('./db')`). New `server/test-bridge.js` (`npm run test:db`): 12 tests
+against a real MariaDB — rows, WHERE with number/string, injection text returns
+nothing, INSERT id, multi-route order, failing query doesn't stop the others,
+skipped INSERT, reset, `/run`, and DB-down -> compile still returned + dbError.
+Also verified in a real browser (Playwright): Run on DB, Compile-only, Reset DB,
+DB Result tab with INSERT + error rows, bad program -> nothing sent.
+
+**Gotchas:**
+- `pkill -f <pattern>` inside a command that contains the pattern kills the shell.
+- Each Run on DB click re-runs INSERTs (DSL has no request values) — use Reset DB.
+- `/run` runs compiler-produced SQL with no login; fine for local demo only.
+- Tested on MariaDB 10.11 (MySQL-compatible), not Oracle MySQL itself.
+
+**Still open:** dead-code elimination can't be triggered by a valid program
+(skipped on purpose); empty input compiles to a route-less app; the live
+Gemini call still needs one manual test with a real key.

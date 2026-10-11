@@ -6,6 +6,7 @@ export function statusLabel(status, result) {
   if (status === 'compiling') return 'Compiling…';
   if (status === 'network-error') return 'Backend unreachable';
   if (result && result.errors && result.errors.length > 0) return 'Failed';
+  if (result && result.dbError) return 'Database unreachable';
   return 'Success';
 }
 
@@ -40,10 +41,15 @@ export function buildPhaseLines(result, status) {
   // --- ML / heuristic recovery, shown distinctly per design.md ---
   if (result.recoveryLog && result.recoveryLog.length > 0) {
     result.recoveryLog.forEach((r) => {
-      const via = r.source === 'ml' ? 'ML' : 'heuristic fallback';
+      const via =
+        r.source === 'ml' ? `ML${r.provider ? ` (${r.provider})` : ''}` : 'heuristic fallback';
+      const what =
+        r.action === 'insert'
+          ? `inserted missing "${r.value}"`
+          : `corrected to "${r.value}"`;
       lines.push({
         kind: 'ml-recovery',
-        text: `[ML Recovery] Fixed via ${via}: expected ${r.expected}, corrected to "${r.value}" (line ${r.line}).`,
+        text: `[ML Recovery] Fixed via ${via}: expected ${r.expected}, ${what} (line ${r.line}).`,
       });
     });
   }
@@ -73,6 +79,17 @@ export function buildPhaseLines(result, status) {
     const routeMatches = result.expressCode.match(/^app\.(get|post)/gm) || [];
     lines.push({ kind: 'info', text: `[Codegen] ${routeMatches.length} Express route(s) + SQL generated.` });
     lines.push({ kind: 'success', text: `Compilation succeeded.` });
+  }
+
+  // --- Database (only present after "Run on DB") ---
+  if (result.dbError) {
+    lines.push({ kind: 'error', text: `[DB] ${result.dbError}` });
+  } else if (result.dbResults) {
+    const failed = result.dbResults.filter((r) => r.status === 'error').length;
+    lines.push({
+      kind: failed > 0 ? 'error' : 'success',
+      text: `[DB] ${result.dbResults.length} quer${result.dbResults.length === 1 ? 'y' : 'ies'} run on the database${failed > 0 ? `, ${failed} failed` : ''}.`,
+    });
   }
 
   return lines;

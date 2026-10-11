@@ -1,27 +1,42 @@
 // api.js
 // -----------------------------------------------------------------------
-// Thin wrapper around the OptiScript compiler backend (server.js, Week 7).
-// Uses relative URLs ('/compile') on purpose — vite.config.js proxies
-// those to http://localhost:4000 in dev, so no CORS setup is needed and
-// this same code works unchanged if the frontend is ever served by the
-// same origin as the backend.
+// Thin wrapper around the OptiScript API (server/server.js).
+// Uses relative URLs on purpose — vite.config.js proxies them to
+// http://localhost:4000 in dev, so no CORS setup is needed.
+//
+//   compileSource(src)  POST /compile   compiler only
+//   runOnDb(src)        POST /run       compiler, then its SQL on the database
+//   resetDb()           POST /db/reset  reload the sample schema + data
 // -----------------------------------------------------------------------
 
-export async function compileSource(source) {
-  const res = await fetch('/compile', {
+async function post(url, body) {
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ source }),
+    body: JSON.stringify(body ?? {}),
   });
+  return res;
+}
 
-  // compiler.js/server.js always respond 200 with a JSON body — even a
-  // compile failure lives in result.errors, not the HTTP status — so a
-  // non-200 here means something is actually wrong with the request or
-  // the server itself (e.g. it isn't running).
+// compile() problems live in result.errors and database problems in
+// result.dbError (both HTTP 200), so a non-OK status here means the
+// request or the server itself is broken (e.g. it isn't running).
+async function postForResult(url, body) {
+  const res = await post(url, body);
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
-    throw new Error(`Compiler API error (${res.status}): ${text}`);
+    throw new Error(`API error (${res.status}): ${text}`);
   }
-
   return res.json();
+}
+
+export const compileSource = (source) => postForResult('/compile', { source });
+export const runOnDb = (source) => postForResult('/run', { source });
+
+// The reset endpoint reports a database problem as 503 + { message }.
+export async function resetDb() {
+  const res = await post('/db/reset');
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || `API error (${res.status})`);
+  return data;
 }

@@ -1,0 +1,6 @@
+# Library API demo — paste into the playground and click "Run on DB"
+GET /books -> FIND all IN library_db
+GET /books/1 -> FIND all IN library_db WHERE id = 1
+POST /books -> INSERT INTO library_db WHERE title = "Dune"
+GET /authors -> FIND all IN authors_db
+GET /members -> FIND all IN members_db
