@@ -30,7 +30,7 @@ builds directly on the token set from Week 1 (`docs/grammar.md`).
 (Quoted words like `"GET"`, `"FIND"` above represent the *value* of a
 `KEYWORD` token, not a literal string token — see Week 1 grammar.)
 
-## 2. Left Recursion / Ambiguity Check (viva-relevant)
+## 2. Left Recursion / Ambiguity Check 
 
 - **No left recursion**: every rule's alternatives start with a distinct
   terminal (`GET`/`POST` for method, `SLASH` for path, `FIND`/`INSERT`
