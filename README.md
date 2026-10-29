@@ -472,5 +472,42 @@ request-body values for `POST` (so one route can insert real data), and
    Tokens tab and the recovery line in the Console.
 5. **Semantic error** — duplicate `GET /books`; show the `SymbolTableError`
    and the highlighted line.
-6. **Dead-code elimination** — run `npm run test:optimizer` and show the
+6. **Dead-code elimination** — run `npm run test:optimizer` 
+7. and show the
    hand-built quadruples with the removed ones (see Q14).
+
+
+
+# OptiScript: Special Things, Limitations, Applications and References
+ 
+## Special Things
+ 
+- **ML error recovery:** when the parser sees a wrong or missing token, it asks Gemini or Claude for a single corrected token (e.g. `GRT` → `GET`, or inserting a missing `->`).
+- **Safe fallback:** the ML answer is validated, so a hallucinated token type is rejected. If the API is down or has no key, an offline Levenshtein edit-distance fix takes over. If that fails too, a normal typed `ParserError` is raised. The demo works without internet.
+- **No parser libraries:** the lexer and the recursive-descent LL parser are hand-written, as `rules.md` requires.
+- **Fully tested:** 8 test suites cover the compiler phases, plus a database integration test.
+- **Injection-safe:** generated queries are run as prepared statements.
+- **Run on DB:** the playground can execute the generated SQL on a real database and show the result rows.
+## Where It Fails
+ 
+- **Tiny language:** only `GET`/`POST`, `FIND`, `INSERT` and `WHERE`. There is no `PUT`/`DELETE`, no joins, no `AND`/`OR`, and no real request-body values.
+- **Dead-code elimination:** it is correct on hand-built quadruples, but a valid OptiScript program never produces dead code. In a demo it can only be shown through the unit test.
+- **Single basic block:** every program has exactly one basic block, since there are no loops or branches.
+- **ML recovery limit:** it fixes only one token at a time, so scripts with multiple errors still fail.
+- **Case-sensitive keywords:** `get` is not `GET`.
+- **`/run` has no login:** fine for a local demo, unsafe to deploy.
+- **Untested live key:** the live Gemini call still needs one manual test with a real API key.
+## Real-World Applications
+ 
+- Rapid API prototyping and boilerplate generation, in the style of low-code and backend tools like Hasura or PostgREST.
+- Teaching compiler design, since it shows every phase end to end.
+- A base for ML-assisted "did you mean...?" error recovery in other compilers and linters.
+## Documentation You Can Cite
+ 
+1. **Crafting Interpreters** (scanning and recursive-descent parsing chapters)
+   - https://craftinginterpreters.com/scanning.html
+   - https://craftinginterpreters.com/parsing-expressions.html
+2. **Express routing guide**
+   - https://expressjs.com/en/guide/routing.html
+3. **Textbook (no link):** Aho, Lam, Sethi, Ullman, *Compilers: Principles, Techniques, and Tools* (the Dragon Book), for quadruples, dead-code elimination and symbol tables (Modules 4-6).
+
