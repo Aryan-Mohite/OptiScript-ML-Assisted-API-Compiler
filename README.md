@@ -65,7 +65,7 @@ npm run test:lexer && npm run test:parser && npm run test:symbols \
 GET  /books        -> FIND all IN library_db
 GET  /books/1      -> FIND all IN library_db WHERE id = 1
 POST /books        -> INSERT INTO library_db WHERE title = "Dune"
-# lines starting with # are comments
+
 ```
 
 - **Keywords** (case-sensitive): `GET POST FIND all IN WHERE INSERT INTO`
